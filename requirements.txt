@@ -1,0 +1,7 @@
+streamlit
+scikit-learn
+faiss-cpu
+pandas
+numpy
+imdb_clean.csv
+imdb_raw.csv
