@@ -7,6 +7,7 @@ import time
 
 
 
+
 start = time.time()
 #1. data loading
 data = pd.read_csv('imdb_raw.csv')

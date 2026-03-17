@@ -2,113 +2,100 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
-import time
 import faiss
-import numpy as np
-
-from main import tfidf_vectorizer, tfidf_matrix
+import re
+import time
 
 app = FastAPI()
-
 start = time.time()
-#1. data loading
+
+# -------------------------------
+# 1. Load Data
+# -------------------------------
 data = pd.read_csv('imdb_raw.csv')
-print(data.columns)
-print(data.head(10))
 
-#2.Check the missing value
-print(data.isnull().sum())
+# -------------------------------
+# 2. Data Preprocessing
+# -------------------------------
+# Clean numeric columns
+data['release_year'] = data['release_year'].str.extract(r'(\d+)').astype(float)
+data['runtime'] = data['runtime'].str.extract(r'(\d+)').astype(float)
+data['gross'] = data['gross'].str.extract(r'(\d+)').astype(float)
 
-#3.Data Preprocessing
-print(data.info())
-"""As per the data information we have few columns which are not in correct format like release year should be int instead of str,runtime should be numeric instead of str,gross should be numeric instead of str,"""
-# convert the release date into int
-data['release_year'] = data['release_year'].str.extract('(\d+)')
-data['release_year'] = data['release_year'].astype(int)
-data['release_year'].head()
-print(data.dtypes)
-# convert the runtime
-data['runtime'] = data['runtime'].str.extract('(\d+)')
-data['runtime'] = data['runtime'].astype(int)
-data['runtime'].head()
-print(data.dtypes)
+# Fill missing text values
+data['genre'] = data['genre'].fillna('')
+data['director'] = data['director'].fillna('')
+data['title'] = data['title'].fillna('')
 
-# convert the gross
-data['gross'] = data['gross'].str.extract('(\d+)')
-data['gross'] = data['gross'].astype(int)
-data['gross'].head()
-print(data.dtypes)
+# Remove commas in genre/director
+data['genre'] = data['genre'].str.replace(',', ' ')
+data['director'] = data['director'].str.replace(',', ' ')
 
-# Feature Engineering
-# step-1: Select important features
-"""make the strongest feature by adding  genre + director name"""
-# step-2 : Create a new column for the  same
-data['genre'] = data['genre'].str.replace(',','')
-data['director'] = data['director'].str.replace(',','')
+# Combine features
 data['combine_feature'] = data['genre'] + " " + data['director']
-print(data['combine_feature'].head(5))
 
-"""data vectorization and similarity computation"""
-# Convert sparse TF-IDF to dense float32 and normal size
-tfidf_dense = np.asarray(tfidf_matrix.todense())
+# -------------------------------
+# 3. TF-IDF Vectorization
+# -------------------------------
+tfidf = TfidfVectorizer(stop_words='english')
+tfidf_matrix = tfidf.fit_transform(data['combine_feature'])
+
+# Convert to dense + normalize for cosine similarity
+tfidf_dense = tfidf_matrix.toarray().astype('float32')
 tfidf_norm = normalize(tfidf_dense)
-# build the FAISS Index
-d = tfidf_norm.shape[1]  # dimension
-index = faiss.IndexFlatIP(d) # inner product-cosine similarity
-index.add(np.array(tfidf_norm))
 
-""" 
-above command will create the each movie in a vector
-each word in combine_feature gets a weight based on TF-IDF
-The result tfidf_matrix is numeric and ready for similarity calculation
-"""
-# check the shape
-print(tfidf_matrix.shape)
+# -------------------------------
+# 4. Build FAISS Index
+# -------------------------------
+dimension = tfidf_norm.shape[1]
+index = faiss.IndexFlatIP(dimension)
+index.add(tfidf_norm)
 
-# Step-2 Compute Similarity
-cosine_sim = cosine_similarity(tfidf_matrix,tfidf_matrix)
-print(cosine_sim)
+# -------------------------------
+# 5. Create title index mapping
+# -------------------------------
+def clean_title(title):
+    return re.sub(r'[^a-z0-9 ]', '', title.lower().strip())
 
-# Map movie titles to the index
-indices = pd.Series(data.index, index=data['title']).drop_duplicates()
+data['title_clean'] = data['title'].apply(clean_title)
+indices = pd.Series(data.index, index=data['title_clean']).drop_duplicates()
 
-# Build the FAISS index
-d = tfidf_norm.shape[1]
-index = faiss.IndexFlatIP(d)
-index.add(np.array(tfidf_norm))
-
-# Map titles to indices
-indices = pd.Series(data.index, index=data['title']).drop_duplicates()
-
-"""Build the recommendation function"""
-
-
+# -------------------------------
+# 6. Recommendation Function
+# -------------------------------
 def recommend_faiss(title, top_n=5):
-    title = title.strip()
-    if title not in indices:
-        return ["Movie not found in the dataset"]
+    title_clean = clean_title(title)
 
-    idx = indices[title]
-    query_vector = tfidf_norm[idx].reshape(1, -1).astype('float32')
-    D, I = index.search(query_vector, top_n + 1)
-    movie_indices = I.flatten()[1:]  # skip itself
+    if title_clean not in indices:
+        return [{"error": "Movie not found in dataset"}]
 
-    # return as a list instead of Series
-    return data['title'].iloc[movie_indices].tolist()
+    idx = indices[title_clean]
+    query_vector = tfidf_norm[idx].reshape(1, -1)
+    scores, neighbors = index.search(query_vector, top_n + 1)
+    movie_indices = neighbors[0][1:]  # skip the input movie itself
 
-# def recommend_movies_with_info(title,top_n=5):
-#     recommended_titles = recommendation(title,top_n=top_n)
-#     recommendation_movies = data[data['title'].isin(recommended_titles)]
-#     return recommendation_movies[['title','genre','director','release_year','rating']]
+    results = data.iloc[movie_indices][
+        ['title', 'genre', 'director', 'release_year']
+    ]
 
+    return results.to_dict(orient='records')
 
+# -------------------------------
+# 7. FastAPI Endpoint
+# -------------------------------
 @app.get("/recommend")
-def recommend_movies(movie:str):
-    recommended = recommend_faiss(movie,top_n=5)
-    return recommended.tolist()
+def recommend_movies(movie: str):
+    recommended = recommend_faiss(movie, top_n=5)
+    return {
+        "input_movie": movie,
+        "recommendations": recommended
+    }
 
+# -------------------------------
+# 8. Test Example
+# -------------------------------
+example_title = "Harry Potter and the Prisoner of Azkaban"
+print(recommend_faiss(example_title, top_n=5))
 end = time.time()
-print(recommend_faiss(" Harry Potter and the Prisoner of Azkaban",top_n=20))
-print("Time taken by Sklearn Cosine Similarity:{:.6f}s".format(end-start))
+print("Time taken by FAISS similarity search: {:.6f}s".format(end - start))
