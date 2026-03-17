@@ -1,5 +1,7 @@
 🎬 **Movie Recommendation System**
-**A content-based movie recommendation system built using FAISS, TF-IDF, FastAPI, and Streamlit. Users can input a movie and get top similar movies based on genre and director, with a clean UI.**
+**A content-based movie recommendation system built using FAISS, TF-IDF, FastAPI, and Streamlit. Users can input a movie and get top similar movies based on genre and director, with a clean UI.
+
+**Deployed link-"https://movierecommendationsystem-g96sssvkgkkpgujzpeux8h.streamlit.app/"**
 **Features**
 Recommends movies based on content similarity.
 Uses TF-IDF to vectorize movie features (genre + director).
@@ -7,8 +9,7 @@ FAISS for fast similarity search.
 Clean Streamlit UI for interactive experience.
 Optional: fuzzy matching for approximate movie title searches.**
 **Screenshot**
-![Uploading image.png…]()
-![Uploading image.png…]()
+**<img width="903" height="888" alt="Movie_Recommendation_System" src="https://github.com/user-attachments/assets/79452e68-9d76-4b5e-a34b-0e44613d69ac" />
 **Installation**
 clone the repo-git clone https://github.com/ritujadik/Movie_Recommendation_System.git
                          cd Movie_Recommendation_System
